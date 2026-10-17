@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { profile, experience, projects, skills, education, interests } from './data.js'
 
 function useScrollState(ids) {
@@ -49,9 +49,87 @@ const NAV = [
   ['playground', 'PLAYGROUND'],
 ]
 
-const SECRET_SEQUENCE = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a', 'Enter']
+const SECRET_SEQUENCES = [
+  {
+    keys: ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a', 'Enter'],
+    title: 'NICE INPUT.',
+    message: 'You found the hidden developer easter egg. Consider this a tiny reward for exploring.',
+  },
+  {
+    keys: ['r', 'e', 'a', 'c', 't'],
+    title: 'REACTOR ONLINE.',
+    message: 'Component status: mounted. Pixel levels: optimal.',
+  },
+  {
+    keys: ['d', 'e', 'b', 'u', 'g'],
+    title: 'DEBUG MODE.',
+    message: 'No bugs detected. Except the ones waiting in Bug Hunt.',
+  },
+]
 
-function BugHunt() {
+const SFX_NOTES = {
+  click: [{ frequency: 660, duration: 0.045 }],
+  success: [{ frequency: 660, duration: 0.06 }, { frequency: 880, duration: 0.09 }],
+  error: [{ frequency: 260, duration: 0.07 }, { frequency: 190, duration: 0.09 }],
+  match: [{ frequency: 523, duration: 0.07 }, { frequency: 659, duration: 0.07 }, { frequency: 784, duration: 0.12 }],
+  secret: [{ frequency: 523, duration: 0.08 }, { frequency: 659, duration: 0.08 }, { frequency: 784, duration: 0.08 }, { frequency: 1047, duration: 0.2 }],
+}
+
+function useSoundEffects() {
+  const [enabled, setEnabled] = useState(() => localStorage.getItem('sfx') === 'on')
+  const [error, setError] = useState('')
+  const contextRef = useRef(null)
+  const enabledRef = useRef(enabled)
+
+  useEffect(() => {
+    enabledRef.current = enabled
+    localStorage.setItem('sfx', enabled ? 'on' : 'off')
+  }, [enabled])
+
+  const playSfx = useCallback((name = 'click') => {
+    if (!enabledRef.current) return
+    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext
+    if (!AudioContextConstructor) {
+      setError('Sound is not supported by this browser.')
+      setEnabled(false)
+      return
+    }
+
+    try {
+      const context = contextRef.current || new AudioContextConstructor()
+      contextRef.current = context
+      if (context.state === 'suspended') {
+        context.resume().catch(() => {
+          setError('Sound could not start. Try enabling SFX again.')
+          setEnabled(false)
+        })
+      }
+
+      let startAt = context.currentTime
+      for (const note of SFX_NOTES[name] || SFX_NOTES.click) {
+        const oscillator = context.createOscillator()
+        const gain = context.createGain()
+        oscillator.type = 'square'
+        oscillator.frequency.setValueAtTime(note.frequency, startAt)
+        gain.gain.setValueAtTime(0.025, startAt)
+        gain.gain.exponentialRampToValueAtTime(0.001, startAt + note.duration)
+        oscillator.connect(gain)
+        gain.connect(context.destination)
+        oscillator.start(startAt)
+        oscillator.stop(startAt + note.duration)
+        startAt += note.duration * 0.85
+      }
+      setError('')
+    } catch {
+      setError('Sound could not be played. Try enabling SFX again.')
+      setEnabled(false)
+    }
+  }, [])
+
+  return { enabled, setEnabled, error, playSfx }
+}
+
+function BugHunt({ playSfx }) {
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(15)
   const [target, setTarget] = useState(4)
@@ -80,6 +158,7 @@ function BugHunt() {
   }, [playing])
 
   const start = () => {
+    playSfx('click')
     setScore(0)
     setTime(15)
     setTarget(Math.floor(Math.random() * 9))
@@ -90,12 +169,14 @@ function BugHunt() {
   const hitCell = (cell) => {
     if (!playing) return
     if (cell === target) {
+      playSfx('success')
       const nextScore = score + 1
       setScore(nextScore)
       setBest((record) => Math.max(record, nextScore))
       setMessage('Bug fixed. Keep going!')
       setTarget((current) => (current + 1 + Math.floor(Math.random() * 8)) % 9)
     } else {
+      playSfx('error')
       setMessage('No bug there. Keep looking.')
     }
   }
@@ -141,7 +222,7 @@ function makeMemoryDeck() {
   return deck
 }
 
-function MemoryMatch() {
+function MemoryMatch({ playSfx }) {
   const [deck, setDeck] = useState(makeMemoryDeck)
   const [flipped, setFlipped] = useState([])
   const [matched, setMatched] = useState([])
@@ -152,6 +233,7 @@ function MemoryMatch() {
   useEffect(() => () => window.clearTimeout(mismatchTimeout.current), [])
 
   const reset = () => {
+    playSfx('click')
     window.clearTimeout(mismatchTimeout.current)
     setDeck(makeMemoryDeck())
     setFlipped([])
@@ -162,18 +244,21 @@ function MemoryMatch() {
 
   const reveal = (index) => {
     if (locked || flipped.includes(index) || matched.includes(index)) return
+    playSfx('click')
     const next = [...flipped, index]
     setFlipped(next)
     if (next.length < 2) return
 
     setAttempts((count) => count + 1)
     if (deck[next[0]].value === deck[next[1]].value) {
+      playSfx('match')
       setMatched((cards) => [...cards, ...next])
       setFlipped([])
       return
     }
 
     setLocked(true)
+    playSfx('error')
     mismatchTimeout.current = window.setTimeout(() => {
       setFlipped([])
       setLocked(false)
@@ -214,9 +299,12 @@ function MemoryMatch() {
   )
 }
 
-function SecretFound({ onClose }) {
+function SecretFound({ title, message, onClose, playSfx }) {
   const dialogRef = useRef(null)
-  useEffect(() => dialogRef.current?.focus(), [])
+  useEffect(() => {
+    dialogRef.current?.focus()
+    playSfx('secret')
+  }, [playSfx])
 
   return (
     <div className="secret-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -230,8 +318,8 @@ function SecretFound({ onClose }) {
         onKeyDown={(event) => event.key === 'Escape' && onClose()}
       >
         <span className="project-index">SECRET UNLOCKED</span>
-        <h2 id="secret-title">NICE INPUT.</h2>
-        <p>You found the hidden developer easter egg. Consider this a tiny reward for exploring.</p>
+        <h2 id="secret-title">{title}</h2>
+        <p>{message}</p>
         <div className="secret-pixels" aria-hidden="true">■ ▪ ■ ▪ ■</div>
         <button className="btn" onClick={onClose}>BACK TO PROFILE</button>
       </section>
@@ -276,7 +364,7 @@ function Section({ id, title, children }) {
   )
 }
 
-function CommandPalette({ commands, onClose }) {
+function CommandPalette({ commands, onClose, onSecret, playSfx }) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef(null)
@@ -318,7 +406,16 @@ function CommandPalette({ commands, onClose }) {
           id="command-search"
           className="command-search"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            const value = event.target.value
+            setQuery(value)
+            if (value.trim().toLowerCase() === 'sudo hire evan') {
+              onSecret({
+                title: 'COMMAND ACCEPTED.',
+                message: 'Root access granted: excellent taste in resumes confirmed.',
+              })
+            }
+          }}
           placeholder="Search sections and actions..."
         />
         <div className="command-list" role="listbox" aria-label="Actions">
@@ -330,6 +427,7 @@ function CommandPalette({ commands, onClose }) {
               aria-selected={selected === index}
               onMouseEnter={() => setSelected(index)}
               onClick={() => {
+                playSfx('click')
                 command.run()
                 onClose()
               }}
@@ -345,7 +443,7 @@ function CommandPalette({ commands, onClose }) {
   )
 }
 
-function Project({ pr, n }) {
+function Project({ pr, n, playSfx }) {
   const [open, setOpen] = useState(false)
   return (
     <article className={`card ${open ? 'open' : ''}`}>
@@ -359,7 +457,10 @@ function Project({ pr, n }) {
       <button
         className="btn"
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          playSfx('click')
+          setOpen(!open)
+        }}
       >
         {open ? 'SHOW LESS −' : 'READ MORE +'}
       </button>
@@ -367,7 +468,30 @@ function Project({ pr, n }) {
   )
 }
 
-function Avatar() {
+function Avatar({ onSecret, playSfx }) {
+  const clicks = useRef(0)
+  const resetClicks = useRef(null)
+
+  useEffect(() => () => window.clearTimeout(resetClicks.current), [])
+
+  const handleClick = () => {
+    playSfx('click')
+    clicks.current += 1
+    window.clearTimeout(resetClicks.current)
+    resetClicks.current = window.setTimeout(() => {
+      clicks.current = 0
+    }, 1800)
+
+    if (clicks.current === 5) {
+      clicks.current = 0
+      window.clearTimeout(resetClicks.current)
+      onSecret({
+        title: 'PIXEL PERFECT.',
+        message: 'Five clicks, one tiny portrait, and a hidden badge for your curiosity.',
+      })
+    }
+  }
+
   const map = [
     '..hhhh..',
     '.hhhhhh.',
@@ -381,11 +505,13 @@ function Avatar() {
   const colors = { h: '#253d3a', s: '#d2aa87', e: '#20312f', b: '#65d6c4', l: '#447d78' }
   return (
     <div className="avatar-wrap">
-      <svg className="avatar" viewBox="0 0 8 8" shapeRendering="crispEdges" role="img" aria-label="Pixel portrait">
-        {map.flatMap((row, y) =>
-          [...row].map((c, x) => (c === '.' ? null : <rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" fill={colors[c]} />)),
-        )}
-      </svg>
+      <button className="avatar-secret" onClick={handleClick} aria-label="Pixel portrait">
+        <svg className="avatar" viewBox="0 0 8 8" shapeRendering="crispEdges" aria-hidden="true">
+          {map.flatMap((row, y) =>
+            [...row].map((c, x) => (c === '.' ? null : <rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" fill={colors[c]} />)),
+          )}
+        </svg>
+      </button>
     </div>
   )
 }
@@ -397,7 +523,8 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [emailStatus, setEmailStatus] = useState('')
-  const [secretFound, setSecretFound] = useState(false)
+  const [secretFound, setSecretFound] = useState(null)
+  const { enabled: sfxEnabled, setEnabled: setSfxEnabled, error: sfxError, playSfx } = useSoundEffects()
   useReveal()
 
   useEffect(() => {
@@ -417,18 +544,20 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    let progress = 0
+    let progress = SECRET_SEQUENCES.map(() => 0)
     const onKeyDown = (event) => {
       if (event.repeat || event.target instanceof HTMLElement && ['INPUT', 'TEXTAREA'].includes(event.target.tagName)) return
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
-      if (key === SECRET_SEQUENCE[progress]) {
-        progress += 1
-        if (progress === SECRET_SEQUENCE.length) {
-          progress = 0
-          setSecretFound(true)
-        }
-      } else {
-        progress = key === SECRET_SEQUENCE[0] ? 1 : 0
+      const nextProgress = SECRET_SEQUENCES.map((sequence, index) => {
+        const current = progress[index]
+        if (key === sequence.keys[current]) return current + 1
+        return key === sequence.keys[0] ? 1 : 0
+      })
+      const foundIndex = nextProgress.findIndex((current, index) => current === SECRET_SEQUENCES[index].keys.length)
+      progress = foundIndex === -1 ? nextProgress : SECRET_SEQUENCES.map(() => 0)
+      if (foundIndex !== -1) {
+        const { title, message } = SECRET_SEQUENCES[foundIndex]
+        setSecretFound({ title, message })
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -438,8 +567,10 @@ export default function App() {
   const copyEmail = async () => {
     try {
       await navigator.clipboard.writeText(profile.email)
+      playSfx('success')
       setEmailStatus('Email copied')
     } catch {
+      playSfx('error')
       setEmailStatus('Copy unavailable — use the email link')
     }
     window.setTimeout(() => setEmailStatus(''), 2500)
@@ -449,12 +580,18 @@ export default function App() {
     ...NAV.map(([id, label]) => ({
       label: `Go to ${label.toLowerCase()}`,
       description: `Navigate to ${label.toLowerCase()} section`,
-      run: () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }),
+      run: () => {
+        playSfx('click')
+        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+      },
     })),
     {
       label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`,
       description: 'Change the page color theme',
-      run: () => setTheme(theme === 'dark' ? 'light' : 'dark'),
+      run: () => {
+        playSfx('click')
+        setTheme(theme === 'dark' ? 'light' : 'dark')
+      },
     },
     { label: 'Copy email address', description: profile.email, run: copyEmail },
   ]
@@ -471,20 +608,29 @@ export default function App() {
       </div>
       <nav className="nav">
         {NAV.map(([id, label]) => (
-          <a key={id} href={`#${id}`} className={active === id ? 'active' : ''}>
+          <a key={id} href={`#${id}`} className={active === id ? 'active' : ''} onClick={() => playSfx('click')}>
             {label}
           </a>
         ))}
         <button
           className="btn command-trigger"
-          onClick={() => setPaletteOpen(true)}
+          onClick={() => {
+            playSfx('click')
+            setPaletteOpen(true)
+          }}
           aria-label="Open command palette"
           aria-haspopup="dialog"
           aria-expanded={paletteOpen}
         >
           COMMANDS <kbd>CTRL / ⌘ K</kbd>
         </button>
-        <button className="btn theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+        <button className="btn sfx-toggle" aria-pressed={sfxEnabled} onClick={() => setSfxEnabled((enabled) => !enabled)}>
+          SFX: {sfxEnabled ? 'ON' : 'OFF'}
+        </button>
+        <button className="btn theme-toggle" onClick={() => {
+          playSfx('click')
+          setTheme(theme === 'dark' ? 'light' : 'dark')
+        }}>
           {theme === 'dark' ? 'LIGHT MODE' : 'DARK MODE'}
         </button>
       </nav>
@@ -507,7 +653,7 @@ export default function App() {
           </div>
           <div className="portrait-frame">
             <span className="portrait-label">PIXEL PORTRAIT</span>
-            <Avatar />
+            <Avatar onSecret={setSecretFound} playSfx={playSfx} />
             <span className="portrait-coordinate">ID / 01</span>
           </div>
         </div>
@@ -540,7 +686,7 @@ export default function App() {
         <Section id="projects" title="SELECTED PROJECTS">
           <div className="grid">
             {projects.map((pr, n) => (
-              <Project key={pr.title} pr={pr} n={n} />
+              <Project key={pr.title} pr={pr} n={n} playSfx={playSfx} />
             ))}
           </div>
         </Section>
@@ -560,7 +706,10 @@ export default function App() {
               <h3>{s.group}</h3>
               <div className="chips">
                 {s.items.map((it) => (
-                  <button key={it} className="chip" onClick={() => setQuery(it)}>
+                  <button key={it} className="chip" onClick={() => {
+                    playSfx('click')
+                    setQuery(it)
+                  }}>
                     {it}
                   </button>
                 ))}
@@ -586,22 +735,36 @@ export default function App() {
         <Section id="playground" title="DEVELOPER PLAYGROUND">
           <p className="playground-intro">A couple of tiny pixel breaks between deployments.</p>
           <div className="arcade-grid">
-            <BugHunt />
-            <MemoryMatch />
+            <BugHunt playSfx={playSfx} />
+            <MemoryMatch playSfx={playSfx} />
           </div>
           <p className="easter-hint">There may also be a classic controller combo hidden somewhere on this page.</p>
         </Section>
       </main>
 
-      <button className="btn totop" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} aria-label="Back to top">
+      <button className="btn totop" onClick={() => {
+        playSfx('click')
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }} aria-label="Back to top">
         BACK TO TOP
       </button>
 
+      {sfxError && <p className="sfx-status" role="status">{sfxError}</p>}
       <footer className="footer">
         <p>© {new Date().getFullYear()} Evannoah R. Pratama <span aria-hidden="true">·</span> BUILT WITH REACT</p>
       </footer>
-      {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
-      {secretFound && <SecretFound onClose={() => setSecretFound(false)} />}
+      {paletteOpen && (
+        <CommandPalette
+          commands={commands}
+          onClose={() => setPaletteOpen(false)}
+          playSfx={playSfx}
+          onSecret={(secret) => {
+            setPaletteOpen(false)
+            setSecretFound(secret)
+          }}
+        />
+      )}
+      {secretFound && <SecretFound title={secretFound.title} message={secretFound.message} onClose={() => setSecretFound(null)} playSfx={playSfx} />}
     </>
   )
 }
