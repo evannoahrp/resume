@@ -49,6 +49,7 @@ const NAV = [
   ['playground', 'PLAYGROUND'],
 ]
 
+const STEAM_PROFILE_URL = 'https://steamcommunity.com/id/sperbia/'
 const SECRET_SEQUENCES = [
   {
     keys: ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a', 'Enter'],
@@ -65,7 +66,38 @@ const SECRET_SEQUENCES = [
     title: 'DEBUG MODE.',
     message: 'No bugs detected. Except the ones waiting in Bug Hunt.',
   },
+  {
+    keys: ['s', 't', 'e', 'a', 'm'],
+    title: 'PLAYER PROFILE FOUND.',
+    message: 'A little side quest for curious visitors.',
+    link: STEAM_PROFILE_URL,
+  },
 ]
+
+function PixelBackdrop() {
+  return (
+    <svg className="pixel-backdrop" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice" shapeRendering="crispEdges" aria-hidden="true">
+      <defs>
+        <pattern id="pixel-grid" width="32" height="32" patternUnits="userSpaceOnUse">
+          <path d="M32 0H0V32" fill="none" stroke="var(--muted)" strokeOpacity=".16" strokeWidth="1" />
+        </pattern>
+      </defs>
+      <rect width="1920" height="1080" fill="url(#pixel-grid)" />
+      <g fill="var(--accent)" opacity=".18">
+        <path d="M256 160h32v32h32v32h-32v32h-32v-32h-32v-32h32z" />
+        <path d="M1536 256h32v32h32v32h-32v32h-32v-32h-32v-32h32z" />
+        <path d="M1184 96h32v32h-32zM1216 128h32v32h-32zM1152 128h32v32h-32zM1184 160h32v32h-32z" />
+        <path d="M416 448h24v24h-24zM1440 576h24v24h-24zM160 704h24v24h-24zM1728 800h24v24h-24z" />
+      </g>
+      <g fill="var(--blue)" opacity=".12">
+        <path d="M0 944h96v-96h64v64h64v-128h96v160h64v-64h96v-96h64v160h96v-224h96v128h64v-64h96v192h64v-128h96v-64h96v160h64v-224h96v160h64v-96h96v128h64v-160h96v192h64v-128h96v96h96v144H0z" />
+      </g>
+      <g fill="var(--green)" opacity=".15">
+        <path d="M320 880h32v-64h32v64h32v32h-96zM992 848h32v-96h32v96h32v32h-96zM1600 896h32v-64h32v64h32v32h-96z" />
+      </g>
+    </svg>
+  )
+}
 
 const SFX_NOTES = {
   click: [{ frequency: 660, duration: 0.045 }],
@@ -299,7 +331,7 @@ function MemoryMatch({ playSfx }) {
   )
 }
 
-function SecretFound({ title, message, onClose, playSfx }) {
+function SecretFound({ title, message, link, onClose, playSfx }) {
   const dialogRef = useRef(null)
   useEffect(() => {
     dialogRef.current?.focus()
@@ -320,6 +352,13 @@ function SecretFound({ title, message, onClose, playSfx }) {
         <span className="project-index">SECRET UNLOCKED</span>
         <h2 id="secret-title">{title}</h2>
         <p>{message}</p>
+        {link && (
+          <p>
+            <a className="secret-link" href={link} target="_blank" rel="noopener noreferrer" onClick={() => playSfx('click')}>
+              OPEN STEAM PROFILE
+            </a>
+          </p>
+        )}
         <div className="secret-pixels" aria-hidden="true">■ ▪ ■ ▪ ■</div>
         <button className="btn" onClick={onClose}>BACK TO PROFILE</button>
       </section>
@@ -556,8 +595,7 @@ export default function App() {
       const foundIndex = nextProgress.findIndex((current, index) => current === SECRET_SEQUENCES[index].keys.length)
       progress = foundIndex === -1 ? nextProgress : SECRET_SEQUENCES.map(() => 0)
       if (foundIndex !== -1) {
-        const { title, message } = SECRET_SEQUENCES[foundIndex]
-        setSecretFound({ title, message })
+        setSecretFound(SECRET_SEQUENCES[foundIndex])
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -603,6 +641,7 @@ export default function App() {
 
   return (
     <>
+      <PixelBackdrop />
       <div className="xp" aria-hidden="true">
         <div className="xp-fill" style={{ width: `${progress}%` }} />
       </div>
@@ -738,7 +777,7 @@ export default function App() {
             <BugHunt playSfx={playSfx} />
             <MemoryMatch playSfx={playSfx} />
           </div>
-          <p className="easter-hint">There may also be a classic controller combo hidden somewhere on this page.</p>
+          <p className="easter-hint">Several secrets are hidden around this page. Try the portrait, command palette, or a classic controller combo.</p>
         </Section>
       </main>
 
@@ -764,7 +803,15 @@ export default function App() {
           }}
         />
       )}
-      {secretFound && <SecretFound title={secretFound.title} message={secretFound.message} onClose={() => setSecretFound(null)} playSfx={playSfx} />}
+      {secretFound && (
+        <SecretFound
+          title={secretFound.title}
+          message={secretFound.message}
+          link={secretFound.link}
+          onClose={() => setSecretFound(null)}
+          playSfx={playSfx}
+        />
+      )}
     </>
   )
 }
